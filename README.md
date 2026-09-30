@@ -274,15 +274,15 @@ python3 main.py --benchmark
 
 | Configuration | Mappers | Reducers | Run 1 (s) | Run 2 (s) | Run 3 (s) | Average (s) | Speedup vs Baseline |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Baseline (Single Process)** | 1 | 0 | 1.0320 | 1.0440 | 1.0819 | **1.0526** | **1.00x** |
-| **MapReduce (1M + 2R)** | 1 | 2 | 1.0876 | 1.0810 | 1.0521 | **1.0736** | **0.98x** |
-| **MapReduce (2M + 2R)** | 2 | 2 | 0.6601 | 0.6602 | 0.6552 | **0.6585** | **1.60x** |
-| **MapReduce (4M + 2R)** | 4 | 2 | 0.5052 | 0.5006 | 0.5007 | **0.5022** | **2.10x** |
+| **Baseline (Single Process)** | 1 | 0 | 1.0342 | 1.0194 | 1.0655 | **1.0397** | **1.00x** |
+| **MapReduce (1M + 2R)** | 1 | 2 | 1.0564 | 1.0678 | 1.2380 | **1.1207** | **0.93x** |
+| **MapReduce (2M + 2R)** | 2 | 2 | 0.8188 | 0.7410 | 0.7285 | **0.7628** | **1.36x** |
+| **MapReduce (4M + 2R)** | 4 | 2 | 0.5025 | 0.5005 | 0.4953 | **0.4994** | **2.08x** |
 
 ### Performance Analysis
-1. **1 Mapper Overhead (0.98x):** Running MapReduce with 1 mapper and 2 reducers is slightly slower than the single-process baseline (1.0736s vs 1.0526s) because process spawning, IPC queue serialization (`pickle`), and coordinator context switching add overhead that cannot be offset by a single worker.
-2. **Parallel Scaling (1.60x and 2.10x):** Scaling to 2 and 4 mappers achieves significant execution time reductions (from 1.0526s down to 0.5022s), confirming that parallel CPU workers successfully divide the tokenization, normalization, and local aggregation workload.
-3. **Sublinear Speedup:** 4 mappers achieve a 2.10x speedup rather than 4.0x. This is explained by **Amdahl's Law**: sequential portions (reading the file from disk, partitioning lines, final dictionary merging) and IPC queue synchronization impose a theoretical ceiling on parallel efficiency.
+1. **1 Mapper Overhead (0.93x):** Running MapReduce with 1 mapper and 2 reducers is slightly slower than the single-process baseline (1.1207s vs 1.0397s) because process spawning, IPC queue serialization (`pickle`), and coordinator context switching add overhead that cannot be offset by a single worker.
+2. **Parallel Scaling (1.36x and 2.08x):** Scaling to 2 and 4 mappers achieves significant execution time reductions (from 1.0397s down to 0.4994s), confirming that parallel CPU workers successfully divide the tokenization, normalization, and local aggregation workload.
+3. **Sublinear Speedup:** 4 mappers achieve a 2.08x speedup rather than 4.0x. This is explained by **Amdahl's Law**: sequential portions (reading the file from disk, partitioning lines, final dictionary merging) and IPC queue synchronization impose a theoretical ceiling on parallel efficiency.
 
 ---
 

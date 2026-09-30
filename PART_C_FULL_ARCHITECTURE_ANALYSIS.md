@@ -37,9 +37,10 @@ The core philosophy of MapReduce rests on three architectural tenets:
    $$\text{Map}: (k_1, v_1) \rightarrow \text{list}(k_2, v_2)$$
    $$\text{Reduce}: (k_2, \text{list}(v_2)) \rightarrow \text{list}(k_3, v_3)$$
 2. **Data Locality:** Moving compute to where the data resides rather than moving data across network interfaces.
-3. **Fault-Tolerant Shared-Nothing Architecture:** Independent worker processes that execute without shared mutable state, communicating solely via well-defined message-passing channels.
+3. **Shared-Nothing Multi-Process Architecture:** Independent worker processes that execute without shared mutable state, communicating solely via kernel IPC message-passing channels.
 
-This project implements a **high-fidelity local multiprocess simulation** of this exact paradigm on a single multicore host machine.
+> **Implementation Scope & Limitations:**  
+> This project implements a **high-fidelity local multiprocess simulation** of this paradigm on a single multicore host machine. Distributed cloud features (such as worker failure heartbeat monitoring, task rescheduling/retry upon node failure, and network RPC transport) are discussed conceptually for comparison and are **not implemented** in this local Python simulation.
 
 ---
 
@@ -191,9 +192,13 @@ where $k = \lfloor \frac{N}{M} \rfloor$ and $r = N \pmod M$.
 - **Guarantee:** Balanced load distribution ($\max |\text{Partition}_i| - \min |\text{Partition}_j| \le 1$).
 
 ### 5.2 Map & Normalization Stage
-Text is converted to lowercase and tokens are extracted using the pattern `[a-z0-9']+`. Leading/trailing apostrophes are handled by the existing normalizer, and empty tokens are ignored.
+Each line of text is processed using the identical tokenization and normalization rule from `normalizer.py`:
+1. Convert all text to **lowercase**.
+2. Extract continuous tokens matching the regex pattern `[a-z0-9']+`, retaining **letters (`a-z`)**, **digits (`0-9`)**, and **apostrophes (`'`)** (e.g. `don't`, `it's`, `cloud2026`).
+3. Remove all other punctuation marks (periods, commas, exclamation marks, colons, brackets, quotes, hyphens).
+4. Strip isolated standalone apostrophes and filter out any empty tokens.
 
-For each token $w$, an intermediate key-value pair $(w, 1)$ is generated.
+For each valid normalized token $w$, an intermediate key-value pair $(w, 1)$ is generated.
 
 ### 5.3 Combiner Stage (Local Aggregation)
 The word count aggregation operator $(\mathbb{N}, +)$ forms a **commutative monoid**:
@@ -291,6 +296,21 @@ $$\text{Speedup } S(p) = \frac{1}{(1 - P) + \frac{P}{p}}$$
 - $1 - P \approx 0.08$ (Sequential portion: Disk I/O, OS Process Spawning, Final Disjoint Merge).
 - On 4 Mapper cores ($p = 4$), theoretical maximum speedup:
   $$S(4) = \frac{1}{0.08 + \frac{0.92}{4}} = \frac{1}{0.08 + 0.23} = \frac{1}{0.31} \approx \mathbf{3.22\times}$$
+
+### Empirical Performance Results (`performance_results.csv`)
+Across 3 experimental trials on a 500,000-line dataset (Apple M3 host, 8 cores):
+
+| Configuration | Mappers | Reducers | Average Execution Time | Speedup vs Baseline |
+| :--- | :---: | :---: | :---: | :---: |
+| **Baseline (Single Process)** | 1 | 0 | **1.0397 s** | **1.00x** |
+| **MapReduce (1M + 2R)** | 1 | 2 | **1.1207 s** | **0.93x** |
+| **MapReduce (2M + 2R)** | 2 | 2 | **0.7628 s** | **1.36x** |
+| **MapReduce (4M + 2R)** | 4 | 2 | **0.4994 s** | **2.08x** |
+
+**Empirical Observations:**
+1. **1 Mapper (0.93x):** Demonstrates multiprocessing overhead (process startup, IPC serialization via `pickle`, and OS scheduling context switches) when parallelism degree is 1.
+2. **2 & 4 Mappers (1.36x & 2.08x):** Delivers clear runtime reductions as parallel cores divide the heavy tokenization and normalization workload.
+3. **Amdahl's Law Limit:** The empirical speedup of 2.08x (vs. theoretical 3.22x) accounts for real-world IPC queue buffering and operating system pipe synchronization latencies.
 
 ---
 

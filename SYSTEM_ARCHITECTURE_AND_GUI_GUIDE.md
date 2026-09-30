@@ -80,12 +80,16 @@ graph TD
 ### Stage 2: Map & Normalization
 1. Each mapper worker receives its assigned chunk of raw text lines.
 2. Each line is tokenized using `tokenize_and_normalize()` from `normalizer.py`:
-   - Words are converted to lowercase, and tokens containing letters, digits, and apostrophes are retained. Other punctuation is removed.
+   - Words are converted to **lowercase**.
+   - Tokens matching `[a-z0-9']+` are extracted, retaining **letters (`a-z`)**, **digits (`0-9`)**, and **apostrophes (`'`)** (e.g. `don't`, `it's`, `cloud2026`).
+   - All other punctuation (commas, periods, exclamation marks, colons, brackets, quotes) is removed.
+   - Isolated standalone apostrophes are stripped and empty tokens are ignored.
+3. Intermediate `(word, 1)` pairs are produced.
 
 ### Stage 3: Mapper-Side Combiner (Local Aggregation)
 1. Rather than pushing every individual `(word, 1)` pair across multiprocessing queues, the mapper aggregates words locally into an internal dictionary:
    $$\text{local\_combiner}[\text{word}] += 1$$
-2. **Why this matters for Viva:** A single dataset might contain 500,000 words but only 1,200 unique words. The Combiner reduces inter-process IPC queue messages from 500,000 down to 1,200 (a **99.07% reduction** in queue contention).
+2. **Why this matters for Viva:** A single dataset might contain 500,000 words but only 1,175 unique words. The Combiner reduces inter-process IPC queue messages from 500,000 down to 1,175 (a **99.07% reduction** in queue contention).
 
 ### Stage 4: Mapper-Side Shuffle (CRC32 Partitioning)
 1. Each unique word in the combiner is routed to a target reducer using standard 32-bit CRC32 hashing:
@@ -161,11 +165,10 @@ In Python 3.12+, calling Tkinter methods (`.config()`, `StringVar.set()`, `root.
 ---
 
 ### Section 2: MapReduce Architecture (Configuration Display)
-Displays the fixed parameters representing the assignment specifications:
-- **Mapper Workers:** 4 Parallel Worker Processes
-- **Reducer Workers:** 2 Parallel Worker Processes
+Displays configurable and fixed parameters:
+- **Mapper Workers:** Configurable via Spinbox (from 1 to 16, default: 4)
+- **Reducer Workers:** Fixed at 2 (Partitioned via CRC32 modulo 2)
 - **Combiner:** Enabled (Mapper-Side Local Aggregation)
-- **Shuffle Routing:** CRC32 Hash Modulo 2
 
 ---
 
@@ -179,13 +182,13 @@ Displays the fixed parameters representing the assignment specifications:
   3. **Status Update:** Sets status badge to `RUNNING` (blue).
   4. **Log Clearance:** Clears previous log output and table entries.
   5. **Spawns Worker Thread:** Launches `task()` inside `threading.Thread(daemon=True)`.
-  6. **Multiprocessing Execution:** Calls `run_mapreduce_job(file_path, num_mappers=4, num_reducers=2, log_callback=self._log)`.
+  6. **Multiprocessing Execution:** Calls `run_mapreduce_job(file_path, num_mappers=mappers, num_reducers=2, log_callback=self._log)`.
   7. **Results Callback:** Calls `_display_results()`, which updates:
      - Status Badge $\rightarrow$ `COMPLETED` (green)
-     - Execution Time $\rightarrow$ e.g., `0.2419 s`
+     - Execution Time $\rightarrow$ e.g., `0.1933 s`
      - Total Words $\rightarrow$ e.g., `496,733`
      - Unique Words $\rightarrow$ e.g., `1,175`
-     - Populates the **Top Word Frequencies Table** with the top 25 words sorted descending.
+     - Populates the **Word Count Results Table** with all sorted word frequencies.
   8. **Re-enabling:** `finally:` block executes `_toggle_controls(False)`, safely re-enabling all buttons.
 
 #### Button 2: `✔ Verify Correctness (PASS Check)`
@@ -193,46 +196,61 @@ Displays the fixed parameters representing the assignment specifications:
 - **Trigger Sequence:**
   1. **Validation & Lockout:** Disables buttons and sets status to `VERIFYING` (amber).
   2. **Stage 1 (Baseline):** Executes single-threaded `run_baseline(file_path)` and records baseline word counts and execution time.
-  3. **Stage 2 (MapReduce):** Executes multiprocess `run_mapreduce_job(file_path, num_mappers=4, num_reducers=2)`.
+  3. **Stage 2 (MapReduce):** Executes multiprocess `run_mapreduce_job(file_path, num_mappers=mappers, num_reducers=2)`.
   4. **Stage 3 (Comparison):** Evaluates `b_counts == mr_counts` (exact dictionary key-value match).
   5. **Outcome:**
-     - **If Match:** Status Badge $\rightarrow$ `PASS: MATCH` (green), logs `PASS: Baseline & MapReduce results match 100%!`, and populates the table.
+     - **If Match:** Status Badge $\rightarrow$ `PASS: MATCH` (green), logs `PASS: Results match! 100% equivalence between Baseline and MapReduce.`, and populates the table.
      - **If Mismatch:** Status Badge $\rightarrow$ `FAIL: MISMATCH` (red).
   6. **Re-enabling:** `finally:` block restores all buttons to `NORMAL`.
 
 ---
 
 ### Section 4: Execution Results Dashboard
-- **Status Badge:** Visual pill badge indicating system state (`IDLE`, `RUNNING`, `COMPLETED`, `VERIFYING`, `PASS: MATCH`, `ERROR`).
+- **Status Badge:** Visual pill badge indicating system state (`IDLE`, `RUNNING`, `COMPLETED`, `VERIFYING`, `PASS: MATCH`, `FAIL: MISMATCH`, `ERROR`).
 - **Execution Time:** Accurate benchmark duration measured using high-precision `time.perf_counter()`.
 - **Total Words:** Sum of all word occurrences ($\sum \text{frequencies}$).
 - **Unique Words:** Total number of distinct vocabulary keys ($|\text{keys}|$).
 
 ---
 
-### Section 5: Top Word Frequencies Table
+### Section 5: Word Count Results Table
 - Implemented using `ttk.Treeview` with custom styled headers.
-- Displays the **Top 25 most frequent words** in the dataset:
+- Displays all sorted word frequencies produced by MapReduce in descending order:
   - **Column `#`:** Rank (1, 2, 3, ...)
   - **Column `Word`:** The normalized word string
-  - **Column `Frequency (Count)`:** Comma-formatted occurrence count (e.g. `14,877`)
+  - **Column `Count / Frequency`:** Comma-formatted occurrence count (e.g. `14,877`)
 - Includes an attached vertical scrollbar.
 
 ---
 
 ### Section 6: Simple Execution Log
 A clean, real-time activity log showing key milestones:
-1. `[Stage 1] Loading input dataset file from disk...`
-2. `✓ Input loaded: 50,000 lines read`
-3. `✓ Input partitioned: Partition 1–4 assigned to Mappers`
-4. `✓ Mapper 1–4 & Combiner: completed map and local aggregation`
-5. `✓ Mapper 1–4 Shuffle: CRC32 partitioned and sent to Reducers`
-6. `✓ Reducer 0–1: Completed word frequency aggregation`
-7. `✓ Final result generated: All Reducer partitions merged.`
+1. `[Coordinator] Reading input file from disk...`
+2. `[Coordinator] Input loaded: 50,000 lines read`
+3. `[Coordinator] Partitioning input: Partition 1: 12,500 lines assigned to Mapper-1`
+4. `[Mapper 1–4] Started map phase on 12,500 lines`
+5. `[Mapper 1–4] Combiner completed: tokens aggregated into unique keys`
+6. `[Mapper 1–4] Mapper-side Shuffle completed: CRC32 routed to Reducers`
+7. `[Mapper 1–4] Completed (Sent EOF signals to all Reducers)`
+8. `[Reducer 0–1] Completed: All Mapper EOF signals received (Aggregation finished)`
+9. `[Coordinator] Collected partition from Reducer-0 (keys)`
+10. `[Coordinator] Final result merged: Job completed successfully!`
 
 ---
 
-## 6. Viva / Oral Examination Cheatsheet
+## 7. Local Multiprocessing Architecture vs. Cloud Limitations
+
+| Aspect | Implemented Local Simulation | Real Cloud Deployment (e.g., AWS / GCP / Hadoop) |
+|---|---|---|
+| **Execution Environment** | Local multi-core host using Python `multiprocessing.Process` | Distributed cluster across multiple independent virtual machines/containers |
+| **Communication Channel** | OS IPC Queues (`multiprocessing.Queue`) via kernel pipe buffers | Network RPCs (gRPC, TCP/IP, HTTP/2) between separate cluster nodes |
+| **Data Storage** | Local File System (Disk / SSD) | Distributed Object Storage (Amazon S3, Google Cloud Storage, HDFS) |
+| **Worker Failure & Retries** | **Not implemented** (assumes local OS processes run reliably without hardware fault) | Implemented (Master node monitors worker heartbeats and reschedules failed tasks) |
+| **Scalability Scope** | Limited to physical CPU cores on single machine (e.g., 4–8 cores) | Horizontally scalable across hundreds or thousands of worker nodes |
+
+---
+
+## 8. Viva / Oral Examination Cheatsheet
 
 | Question | Recommended Answer |
 |---|---|
@@ -245,7 +263,7 @@ A clean, real-time activity log showing key milestones:
 
 ---
 
-## 7. Project File Structure Reference
+## 9. Project File Structure Reference
 
 | File | Purpose |
 |---|---|
@@ -256,3 +274,7 @@ A clean, real-time activity log showing key milestones:
 | [`normalizer.py`](file:///Users/shagiththikananthakumar/Desktop/assignmente/MapReduce/normalizer.py) | Text tokenizer and lower-case normalizer. |
 | [`benchmark.py`](file:///Users/shagiththikananthakumar/Desktop/assignmente/MapReduce/benchmark.py) | Automated 3-trial performance harness comparing Baseline vs 1, 2, 4 Mappers. |
 | [`generate_data.py`](file:///Users/shagiththikananthakumar/Desktop/assignmente/MapReduce/generate_data.py) | Synthetic text dataset generator (50k correctness, 500k performance). |
+| [`performance_results.csv`](file:///Users/shagiththikananthakumar/Desktop/assignmente/MapReduce/performance_results.csv) | Recorded empirical performance metrics across configurations. |
+| [`SYSTEM_ARCHITECTURE_AND_GUI_GUIDE.md`](file:///Users/shagiththikananthakumar/Desktop/assignmente/MapReduce/SYSTEM_ARCHITECTURE_AND_GUI_GUIDE.md) | Architectural guide and step-by-step GUI trigger breakdown. |
+| [`PART_C_FULL_ARCHITECTURE_ANALYSIS.md`](file:///Users/shagiththikananthakumar/Desktop/assignmente/MapReduce/PART_C_FULL_ARCHITECTURE_ANALYSIS.md) | Deep-dive theoretical analysis, Amdahl's Law, and Viva defense. |
+| [`README.md`](file:///Users/shagiththikananthakumar/Desktop/assignmente/MapReduce/README.md) | Project overview and usage documentation. |

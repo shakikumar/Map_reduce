@@ -1,0 +1,5 @@
+Configuration,Mappers,Reducers,Dataset Lines,CPU Model,CPU Cores,Run 1 (s),Run 2 (s),Run 3 (s),Average (s),Speedup vs Baseline
+Baseline,1,0,500000,Apple M3,8,1.0342,1.0194,1.0655,1.0397,1.0
+MapReduce (1M + 2R),1,2,500000,Apple M3,8,1.0564,1.0678,1.238,1.1207,0.93
+MapReduce (2M + 2R),2,2,500000,Apple M3,8,0.8188,0.741,0.7285,0.7628,1.36
+MapReduce (4M + 2R),4,2,500000,Apple M3,8,0.5025,0.5005,0.4953,0.4994,2.08
